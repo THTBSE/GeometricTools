@@ -251,9 +251,10 @@ void experiment::IntrConeExperiment()
 void experiment::drawPoints()
 {
 	glEnable(GL_COLOR_MATERIAL);
-	glLineWidth(10.0f);
+	glPointSize(10.0f);
+//	glLineWidth(10.0f);
 	glColor3f(1.0f, 0.0f, 0.0f);
-	glBegin(GL_LINE_STRIP);
+	glBegin(GL_POINTS);
 	for (const auto& v : points)
 	{
 		glVertex3dv(&v[0]);
@@ -308,4 +309,103 @@ experiment::GetTriangleList(TriMesh* mesh)
 		TList.push_back(gte::Triangle3<double>(vertex[0], vertex[1], vertex[2]));
 	}
 	return std::move(TList);
+}
+
+std::vector<gte::Vector3<double>>
+experiment::GetSupportPoint(std::vector<int>& IndexList, 
+std::vector<gte::Triangle3<double>>& TriList, double resolution)
+{
+	//Firstly,Projecting triangles to XOY plane.
+	typedef std::pair<gte::Triangle2<double>, size_t> Tri2Index;
+	std::vector<Tri2Index> xyTriList;
+	double xBeg(std::numeric_limits<double>::max()), xEnd(std::numeric_limits<double>::min());
+	double ymin(std::numeric_limits<double>::max());
+	for (auto i = 0; i < IndexList.size(); ++i)
+	{
+		gte::Vector2<double> tri[3];
+		for (size_t j = 0; j < 3; j++)
+		{
+			tri[j] = gte::HProject(TriList[IndexList[i]].v[j]);
+		}
+		double xbegTemp = (*std::min_element(std::begin(tri), std::end(tri), CompOneDim<2>(0)))[0];
+		double xendTemp = (*std::max_element(std::begin(tri), std::end(tri), CompOneDim<2>(0)))[0];
+		xBeg = xbegTemp < xBeg ? xbegTemp : xBeg;
+		xEnd = xEnd < xendTemp ? xendTemp : xEnd;
+		
+		double yminTemp = (*std::min_element(std::begin(tri), std::end(tri), CompOneDim<2>(1)))[1];
+		ymin = yminTemp < ymin ? yminTemp : ymin;
+
+		xyTriList.push_back(std::make_pair(gte::Triangle2<double>(tri),IndexList[i]));
+	}
+
+	//Secondly,Getting intersection pairs from xBeg to xEnd;
+	std::map<double, std::vector<IntrPair>> Lines;
+	gte::FIQuery<double, gte::Line2<double>, gte::Triangle2<double>> fiq;
+	while (xBeg < xEnd)
+	{
+		std::vector<IntrPair> IPair;
+		gte::Line2<double> xScanline(gte::Vector2<double>(xBeg, ymin), gte::Vector2<double>::Basis1());
+		for (size_t i = 0; i < xyTriList.size(); ++i)
+		{
+			auto ret = fiq(xScanline, xyTriList[i].first);
+			if (ret.intersect)
+			{
+				if (ret.numIntersections == 1)
+				{
+					IPair.push_back(IntrPair(ret.point[0][1], ret.point[0][1], xyTriList[i].second));
+				}
+				else if (ret.numIntersections == 2)
+				{
+					IPair.push_back(IntrPair(ret.point[0][1], ret.point[1][1], xyTriList[i].second));
+				}
+			}
+		}
+		//It should be sort 
+		if (!IPair.empty())
+		{
+			std::sort(IPair.begin(), IPair.end());
+			Lines.insert(std::make_pair(xBeg, IPair));
+		}
+		xBeg += resolution;
+	}
+
+	//Thirdly,Getting sampling points in XOY plane
+	typedef std::pair<gte::Vector2<double>, size_t> Vec2Index;
+	std::vector<Vec2Index> samples;
+	for (auto LIter = Lines.begin(); LIter != Lines.end(); ++LIter)
+	{
+		std::vector<IntrPair>& line = LIter->second;
+		double yBeg = line.front().first;
+		const double yEnd = line.back().second;
+		const double xNum = LIter->first;
+		std::vector<IntrPair>::size_type curr = 0;
+		while (yBeg < yEnd)
+		{
+			while (line[curr].second < yBeg)
+			{
+				++curr;
+			}
+			if (line[curr].first <= yBeg && yBeg <= line[curr].second)
+			{
+				samples.push_back(std::make_pair(gte::Vector2<double>(xNum, yBeg), line[curr].TriIndex));
+			}
+			yBeg += resolution;
+		}
+	}
+
+	//Fourthly, Using Line intersection to get final sampling points
+	std::vector<gte::Vector3<double>> fsamples;
+	gte::FIQuery<double, gte::Line3<double>, gte::Triangle3<double>> l3fiq;
+	for (const auto &xoyp : samples)
+	{
+		auto v3 = gte::HLift(xoyp.first, 0.0);
+		gte::Line3<double> l3(v3, gte::Vector3<double>::Basis2());
+		auto intrl3 = l3fiq(l3, TriList[xoyp.second]);
+		if (intrl3.intersect)
+		{
+			fsamples.push_back(intrl3.point);
+		}
+	}
+	
+	return std::move(fsamples);
 }

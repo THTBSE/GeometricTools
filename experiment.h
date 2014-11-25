@@ -7,9 +7,40 @@
 #include "../Mathematics/GteMatrix3x3.h"
 #include "../Mathematics/GteRotation.h"
 #include "../Mathematics/GteIntrSegment3Triangle3.h"
+#include "../Mathematics/GteIntrLine2Triangle2.h"
 #include "../trimesh/include/TriMesh.h"
+#include "../Mathematics/GteIntrLine3Triangle3.h"
 #include <array>
 #include <vector>
+#include <map>
+
+class IntrPair
+{
+public:
+	IntrPair(double _1st = 0.0, double _2nd = 0.0, 
+		size_t index = std::numeric_limits<size_t>::max()) :first(_1st), second(_2nd), TriIndex(index) {}
+	double first, second;
+	size_t TriIndex;
+
+	friend bool operator< (const IntrPair& lhs, const IntrPair& rhs)
+	{
+		return (lhs.first + lhs.second) < (rhs.first + rhs.second);
+	}
+};
+
+template<int N>
+class CompOneDim
+{
+public:
+	CompOneDim(size_t i) :dim(i){}
+
+	bool operator() (const gte::Vector<N,double>& lhs, const gte::Vector<N,double>& rhs)
+	{
+		return lhs[dim] < rhs[dim];
+	}
+private:
+	size_t dim;
+};
 
 class experiment
 {
@@ -71,6 +102,13 @@ public:
 
 	//experiment data
 	std::vector<gte::Triangle3<double>> TriList;
+
+	/*  Get Sampling points  */
+
+	//Getting support points from specified triangles list.
+	std::vector<gte::Vector3<double>>
+		GetSupportPoint(std::vector<int>& IndexList, 
+		std::vector<gte::Triangle3<double>>& TriList, double resolution = 0.25);
 };
 
 
