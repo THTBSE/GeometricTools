@@ -312,8 +312,8 @@ experiment::GetTriangleList(TriMesh* mesh)
 }
 
 std::vector<gte::Vector3<double>>
-experiment::GetSupportPoint(std::vector<int>& IndexList, 
-std::vector<gte::Triangle3<double>>& TriList, double resolution)
+experiment::GetSupportPoint(const std::vector<int>& IndexList, 
+		const std::vector<gte::Triangle3<double>>& TriList, double resolution)
 {
 	//Firstly,Projecting triangles to XOY plane.
 	typedef std::pair<gte::Triangle2<double>, size_t> Tri2Index;
@@ -381,13 +381,14 @@ std::vector<gte::Triangle3<double>>& TriList, double resolution)
 		std::vector<IntrPair>::size_type curr = 0;
 		while (yBeg < yEnd)
 		{
-			while (line[curr].second < yBeg)
-			{
-				++curr;
-			}
 			if (line[curr].first <= yBeg && yBeg <= line[curr].second)
 			{
 				samples.push_back(std::make_pair(gte::Vector2<double>(xNum, yBeg), line[curr].TriIndex));
+			}
+			else if (line[curr].second < yBeg)
+			{
+				++curr;
+				continue;
 			}
 			yBeg += resolution;
 		}
@@ -408,4 +409,23 @@ std::vector<gte::Triangle3<double>>& TriList, double resolution)
 	}
 	
 	return std::move(fsamples);
+}
+
+std::vector<int>
+experiment::GetOverhangTriangle(const std::vector<gte::Triangle3<double>>& TList,
+double alphcC)
+{
+	auto VectorP = gte::Vector3<double>::Basis2();
+	std::vector<int> ret;
+	int triCount = (int)TList.size();
+	for (int i = 0; i < triCount; ++i)
+	{
+		auto normal = gte::UnitCross(TList[i].v[1] - TList[i].v[0], TList[i].v[2] - TList[i].v[0]);
+		double ang = gte::Angle(VectorP, normal);
+		if (ang - GTE_C_HALF_PI > alphcC)
+		{
+			ret.push_back(i);
+		}
+	}
+	return std::move(ret);
 }

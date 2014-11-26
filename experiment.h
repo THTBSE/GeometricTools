@@ -18,7 +18,12 @@ class IntrPair
 {
 public:
 	IntrPair(double _1st = 0.0, double _2nd = 0.0, 
-		size_t index = std::numeric_limits<size_t>::max()) :first(_1st), second(_2nd), TriIndex(index) {}
+		size_t index = std::numeric_limits<size_t>::max()) :TriIndex(index) 
+	{
+		first = std::min(_1st, _2nd);
+		second = std::max(_1st, _2nd);
+	}
+
 	double first, second;
 	size_t TriIndex;
 
@@ -107,8 +112,12 @@ public:
 
 	//Getting support points from specified triangles list.
 	std::vector<gte::Vector3<double>>
-		GetSupportPoint(std::vector<int>& IndexList, 
-		std::vector<gte::Triangle3<double>>& TriList, double resolution = 0.25);
+		GetSupportPoint(const std::vector<int>& IndexList, 
+		const std::vector<gte::Triangle3<double>>& TriList, double resolution = 0.25);
+
+	/*  Compute overhang triangles ,return their index  */
+	std::vector<int>
+		GetOverhangTriangle(const std::vector<gte::Triangle3<double>>& TList, double alphcC = GTE_C_QUARTER_PI);
 };
 
 
