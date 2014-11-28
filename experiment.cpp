@@ -74,22 +74,52 @@ void experiment::drawVectors()
 {
 	glEnable(GL_COLOR_MATERIAL);
 	glLineWidth(5.0f);
-	size_t i = 0;
+	glColor3f(1.0f, 1.0f, 1.0f);
 	for (const auto& v : Vectors)
 	{
 		glBegin(GL_LINES);
-		if (i == 0 || i ==1)
-		{
-			glColor3f(0.5f, 0.5f, 0.0f);
-			++i;
-		}
-		else
-			glColor3f(1.0f, 1.0f, 1.0f);
 		glVertex3dv(&v.first[0]);
 		glVertex3dv(&v.second[0]);
 		glEnd();
 	}
 	glDisable(GL_COLOR_MATERIAL);
+}
+
+std::vector<gte::Segment3<double>>
+experiment::DiscreteCone(const gte::Cone3<double>& c)
+{
+	std::vector<gte::Vector3<double>> diskPoints(GetConeDisk(c));
+	std::vector<gte::Segment3<double>> segments;
+	for (const auto &p : diskPoints)
+	{
+		segments.push_back(gte::Segment3<double>(c.vertex, p));
+	}
+	return std::move(segments);
+}
+
+
+std::vector<gte::Vector3<double>>
+experiment::IntrConeToCone(std::vector<gte::Segment3<double>>& c1, const gte::Cone3<double>& c2)
+{
+	std::vector<gte::Vector3<double>> ret;
+	//we only take nearest intersect point
+	for (const auto &seg : c1)
+	{
+		gte::FIQuery<double, gte::Segment3<double>, gte::Cone3<double>> fiq;
+		auto Result = fiq(seg, c2);
+		if (Result.intersect)
+		{
+			switch (Result.type)
+			{
+			case 1:case 2:
+				ret.push_back(Result.point[0]);
+				break;
+			default:
+				break;
+			}
+		}
+	}
+	return std::move(ret);
 }
 
 //in this function , we deafult consider c1 and c2 are not infinite cone.
@@ -181,7 +211,7 @@ experiment::GetConeDisk(const gte::Cone3<double>& c1)
 	double crossProduct = gte::Length(gte::Cross(c1.axis, gteVec3::Basis2()));
 	bool parallel = crossProduct < 1e-6;
 
-	//if Cone3 if infinite , wo make height as 100.0 for convenient
+	//if Cone3 is infinite , make height as 100.0 for convenient
 	double height = c1.height == std::numeric_limits<double>::max() ? 100.0 : c1.height;
 	double radius = fabs(height * c1.sinAngle / c1.cosAngle);
 	gte::Vector3<double> center = c1.vertex + height * c1.axis;
@@ -264,7 +294,28 @@ void experiment::drawPoints()
 }
 
 std::vector<gte::Vector3<double>>
-experiment::IntrConeToTriangle(const gte::Cone3<double>& cone, std::vector<gte::Triangle3<double>>& TList)
+experiment::IntrConeToTriangle(const std::vector<gte::Segment3<double>>& cone,
+const std::vector<gte::Triangle3<double>>& TList)
+{
+	std::vector<gte::Vector3<double>> ret;
+	for (const auto &seg : cone)
+	{
+		for (const auto &tri : TList)
+		{
+			gte::FIQuery<double, gte::Segment3<double>, gte::Triangle3<double>> fiq;
+			auto Result = fiq(seg, tri);
+			if (Result.intersect)
+			{
+				ret.push_back(Result.point);
+				break;
+			}
+		}
+	}
+	return std::move(ret);
+}
+
+std::vector<gte::Vector3<double>>
+experiment::IntrConeToTriangle(const gte::Cone3<double>& cone, const std::vector<gte::Triangle3<double>>& TList)
 {
 	std::vector<gteVec3> diskPoints(GetConeDisk(cone));
 	std::vector<gte::Segment3<double>> segments;
@@ -404,6 +455,7 @@ experiment::GetSupportPoint(const std::vector<int>& IndexList,
 		auto intrl3 = l3fiq(l3, TriList[xoyp.second]);
 		if (intrl3.intersect)
 		{
+			intrl3.point[2] -= 0.1;
 			fsamples.push_back(intrl3.point);
 		}
 	}
@@ -415,11 +467,15 @@ std::vector<int>
 experiment::GetOverhangTriangle(const std::vector<gte::Triangle3<double>>& TList,
 double alphcC)
 {
+	double epsilon = 0.1;
 	auto VectorP = gte::Vector3<double>::Basis2();
 	std::vector<int> ret;
 	int triCount = (int)TList.size();
 	for (int i = 0; i < triCount; ++i)
 	{
+		auto dist = (TList[i].v[0][2] + TList[i].v[1][2] + TList[i].v[2][2]) / 3.0;
+		if (dist < epsilon)
+			continue;
 		auto normal = gte::UnitCross(TList[i].v[1] - TList[i].v[0], TList[i].v[2] - TList[i].v[0]);
 		double ang = gte::Angle(VectorP, normal);
 		if (ang - GTE_C_HALF_PI > alphcC)
@@ -428,4 +484,85 @@ double alphcC)
 		}
 	}
 	return std::move(ret);
+}
+
+std::vector<gte::Segment3<double>>
+experiment::GenerateSupport(const std::vector<gte::Vector3<double>>& InitialSet,
+const std::vector<gte::Triangle3<double>>& TList,
+double AlphaC)
+{
+	using namespace std;
+	typedef gte::Vector3<double> GVec3;
+	typedef pair<GVec3, multiset<Support>::iterator> GVec3AndPtr;
+
+	multiset<Support> PointSet;
+	size_t Identifier = 0;
+	for (const auto & p : InitialSet)
+	{
+		PointSet.insert(Support(p, Identifier++, AlphaC));
+	}
+
+	vector<gte::Segment3<double>> branch;
+	while (!PointSet.empty())
+	{
+		auto top = PointSet.begin();
+		auto c1 = DiscreteCone(top->cone());
+
+		//compute intersection between c1 to all other cones.
+		//IntrPts[i].first is the intersect point.
+		//IntrPts[i].second is the iterator of ci.
+		vector<GVec3AndPtr> IntrPts;
+		for (auto it = ++PointSet.begin(); it != PointSet.end(); ++it)
+		{
+			//maybe empty because non intersection between two cones!
+			auto intrs = IntrConeToCone(c1, it->cone());
+			if (intrs.empty())
+				continue;
+			auto max = *max_element(intrs.begin(), intrs.end(), CompOneDim<3>(2));
+			IntrPts.push_back(make_pair(max, it));
+		}
+		double dConeCone = std::numeric_limits<double>::max();
+		//find the nearest intersection to c1
+		auto IntrIter = min_element(IntrPts.begin(), IntrPts.end(), 
+			[&top](const GVec3AndPtr& lhs, const GVec3AndPtr& rhs) ->bool
+		{
+			return gte::Length(lhs.first - top->point()) < gte::Length(rhs.first - top->point());
+		});
+
+		if (IntrIter != IntrPts.end())
+			dConeCone = gte::Length(IntrIter->first - top->point());
+
+		//compute intersection between c1 to triangle mesh.
+		//possible non intersection with triangle mesh.
+		auto intrm = IntrConeToTriangle(c1, TList);
+		double dConeMesh = std::numeric_limits<double>::max();
+		auto IntrMeshIter = max_element(intrm.begin(), intrm.end(), CompOneDim<3>(2));
+		if (IntrMeshIter != intrm.end())
+			dConeMesh = gte::Length(*IntrMeshIter - top->point());
+
+		//compute the distance from support to printing ground plane (XOY Plane).
+		double dPointPlane = top->point()[2];
+
+		double minDist = std::min(std::min(dConeCone, dConeMesh), dPointPlane);
+		if (minDist == dConeCone)
+		{
+			//c1's point to intersection and ci's point to intersection.
+			//then erase Support c1 and ci from PointSet.
+			branch.push_back(gte::Segment3<double>(top->point(), IntrIter->first));
+			branch.push_back(gte::Segment3<double>(IntrIter->second->point(), IntrIter->first));
+			PointSet.erase(IntrIter->second);
+			PointSet.insert(Support(IntrIter->first, Identifier++, AlphaC));
+		}
+		else if (minDist == dConeMesh)
+		{
+			branch.push_back(gte::Segment3<double>(top->point(), *IntrMeshIter));
+		}
+		else
+		{
+			branch.push_back(gte::Segment3<double>(top->point(), GVec3(top->point()[0],top->point()[1],0.0)));
+		}
+		PointSet.erase(PointSet.begin());
+	}
+
+	return std::move(branch);
 }

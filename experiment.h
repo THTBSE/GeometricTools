@@ -13,7 +13,11 @@
 #include <array>
 #include <vector>
 #include <map>
+#include <set>
 
+//用来保存扫描线与三角形的交点，只有一个交点 first == seconde
+//两个交点fisrt < second
+//只保存一维坐标，另一维坐标通过其他方式保存
 class IntrPair
 {
 public:
@@ -33,6 +37,7 @@ public:
 	}
 };
 
+//用向量的某个维度来比较大小，如按x坐标排序，按y坐标排序等
 template<int N>
 class CompOneDim
 {
@@ -45,6 +50,30 @@ public:
 	}
 private:
 	size_t dim;
+};
+
+//存储打印支撑点(对应的圆锥顶点，封装在这里），便于multiset容器排序以及确定自身的id号
+//排序是按Z坐标从大到小排
+class Support
+{
+public:
+	Support(const gte::Vector3<double>& point, size_t identify, double alphaC = GTE_C_QUARTER_PI)
+		:C(gte::Cone3<double>(point,-gte::Vector3<double>::Basis2(),alphaC,point[2])), id(identify){}
+	const gte::Vector3<double>& point() const
+	{ return C.vertex; }
+	size_t identifier() const
+	{ return id; }
+	const gte::Cone3<double>& cone() const
+	{ return C; }
+
+	friend bool operator< (const Support& lhs, const Support& rhs)
+	{
+		return lhs.C.vertex[2] > rhs.C.vertex[2];
+	}
+
+private:
+	gte::Cone3<double> C;
+	size_t id;
 };
 
 class experiment
@@ -86,8 +115,19 @@ public:
 	std::vector<crdSystem> crdSystems;
 
 	/*           Cone Intersection with Cone              */
+
+	//Discrete a cone to a series of segments
+	std::vector<gte::Segment3<double>>
+		DiscreteCone(const gte::Cone3<double>& c);
+
+	//in this function , we deafult consider c1 and c2 are not infinite cone.
 	std::vector<gte::Vector3<double>>
 		IntrConeToCone(const gte::Cone3<double>& c1, const gte::Cone3<double>& c2);
+
+	//in this function , c1 is in discrete format, and both c1,c2 are not infinite cone.
+	std::vector<gte::Vector3<double>>
+		IntrConeToCone(std::vector<gte::Segment3<double>>& c1, const gte::Cone3<double>& c2);
+
 	std::vector<gte::Vector3<double>>
 		IntrConeToConeInfinite(const gte::Cone3<double>& c1, const gte::Cone3<double>& c2);
 	//get cone bottom disk points;
@@ -100,8 +140,15 @@ public:
 	void drawPoints();
 
 	/*        Cone Intersection with Triangle Mesh        */
+
+	//This is continuous version
 	std::vector<gte::Vector3<double>>
-		IntrConeToTriangle(const gte::Cone3<double>& cone, std::vector<gte::Triangle3<double>>& TList);
+		IntrConeToTriangle(const gte::Cone3<double>& cone, const std::vector<gte::Triangle3<double>>& TList);
+
+	//This is discrete version 
+	std::vector<gte::Vector3<double>>
+		IntrConeToTriangle(const std::vector<gte::Segment3<double>>& cone,
+		const std::vector<gte::Triangle3<double>>& TList);
 	std::vector<gte::Triangle3<double>>
 		GetTriangleList(TriMesh* mesh);
 
@@ -118,6 +165,12 @@ public:
 	/*  Compute overhang triangles ,return their index  */
 	std::vector<int>
 		GetOverhangTriangle(const std::vector<gte::Triangle3<double>>& TList, double alphcC = GTE_C_QUARTER_PI);
+
+	/*  Greedy strategy to generate support structure  */
+	std::vector<gte::Segment3<double>> 
+		GenerateSupport(const std::vector<gte::Vector3<double>>& InitialSet, 
+		const std::vector<gte::Triangle3<double>>& TList,
+		double AlphaC = GTE_C_QUARTER_PI);
 };
 
 
