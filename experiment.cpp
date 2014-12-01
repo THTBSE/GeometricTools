@@ -1,5 +1,6 @@
 #include "experiment.h"
 #include "../opengl/glew.h"
+#include <chrono>
 
 void experiment::interstellar(std::array<gteVec4, 4>& orig, std::array<gteVec4, 4>& tar, gteVec3& atom)
 {
@@ -102,6 +103,11 @@ std::vector<gte::Vector3<double>>
 experiment::IntrConeToCone(std::vector<gte::Segment3<double>>& c1, const gte::Cone3<double>& c2)
 {
 	std::vector<gte::Vector3<double>> ret;
+	auto top = c1[0].p[0];
+	auto top2 = c2.vertex;
+	auto zx = -gte::Vector3<double>::Basis2();
+	gte::Vector3<double> edgeVector,edgeVector2;
+	double ang1, ang2;
 	//we only take nearest intersect point
 	for (const auto &seg : c1)
 	{
@@ -112,7 +118,12 @@ experiment::IntrConeToCone(std::vector<gte::Segment3<double>>& c1, const gte::Co
 			switch (Result.type)
 			{
 			case 1:case 2:
-				ret.push_back(Result.point[0]);
+				edgeVector = Result.point[0] - top;
+				edgeVector2 = Result.point[0] - top2;
+				ang1 = gte::Angle(edgeVector, zx);
+				ang2 = gte::Angle(edgeVector2, zx);
+				if (ang1 <= GTE_C_QUARTER_PI && ang2 <= GTE_C_QUARTER_PI)
+					ret.push_back(Result.point[0]);
 				break;
 			default:
 				break;
@@ -298,11 +309,12 @@ experiment::IntrConeToTriangle(const std::vector<gte::Segment3<double>>& cone,
 const std::vector<gte::Triangle3<double>>& TList)
 {
 	std::vector<gte::Vector3<double>> ret;
+	gte::FIQuery<double, gte::Segment3<double>, gte::Triangle3<double>> fiq;
 	for (const auto &seg : cone)
 	{
+		//bug ! first intersection may not be nearest point.
 		for (const auto &tri : TList)
 		{
-			gte::FIQuery<double, gte::Segment3<double>, gte::Triangle3<double>> fiq;
 			auto Result = fiq(seg, tri);
 			if (Result.intersect)
 			{
@@ -371,7 +383,7 @@ experiment::GetSupportPoint(const std::vector<int>& IndexList,
 	std::vector<Tri2Index> xyTriList;
 	double xBeg(std::numeric_limits<double>::max()), xEnd(std::numeric_limits<double>::min());
 	double ymin(std::numeric_limits<double>::max());
-	for (auto i = 0; i < IndexList.size(); ++i)
+	for (size_t i = 0; i < IndexList.size(); ++i)
 	{
 		gte::Vector2<double> tri[3];
 		for (size_t j = 0; j < 3; j++)
@@ -455,6 +467,7 @@ experiment::GetSupportPoint(const std::vector<int>& IndexList,
 		auto intrl3 = l3fiq(l3, TriList[xoyp.second]);
 		if (intrl3.intersect)
 		{
+			//for generating the support-connect structure,should minus a small value.
 			intrl3.point[2] -= 0.1;
 			fsamples.push_back(intrl3.point);
 		}
@@ -486,6 +499,9 @@ double alphcC)
 	return std::move(ret);
 }
 
+typedef std::chrono::time_point<std::chrono::system_clock> sys_clock;
+typedef std::chrono::duration<double> used_time;
+
 std::vector<gte::Segment3<double>>
 experiment::GenerateSupport(const std::vector<gte::Vector3<double>>& InitialSet,
 const std::vector<gte::Triangle3<double>>& TList,
@@ -494,6 +510,8 @@ double AlphaC)
 	using namespace std;
 	typedef gte::Vector3<double> GVec3;
 	typedef pair<GVec3, multiset<Support>::iterator> GVec3AndPtr;
+
+	TOctree TriOctree(TList, aabb, 9);
 
 	multiset<Support> PointSet;
 	size_t Identifier = 0;
@@ -507,7 +525,7 @@ double AlphaC)
 	{
 		auto top = PointSet.begin();
 		auto c1 = DiscreteCone(top->cone());
-
+		
 		//compute intersection between c1 to all other cones.
 		//IntrPts[i].first is the intersect point.
 		//IntrPts[i].second is the iterator of ci.
@@ -532,10 +550,15 @@ double AlphaC)
 		if (IntrIter != IntrPts.end())
 			dConeCone = gte::Length(IntrIter->first - top->point());
 
-		//compute intersection between c1 to triangle mesh.
-		//possible non intersection with triangle mesh.
-		auto intrm = IntrConeToTriangle(c1, TList);
+		//compute intersection between c1 to triangle mesh by Octree
 		double dConeMesh = std::numeric_limits<double>::max();
+		std::vector<GVec3> intrm;
+		for (const auto &seg : c1)
+		{
+			auto ORet = TriOctree.IntrQuery(seg);
+			if (ORet.intersect)
+				intrm.push_back(ORet.point);
+		}
 		auto IntrMeshIter = max_element(intrm.begin(), intrm.end(), CompOneDim<3>(2));
 		if (IntrMeshIter != intrm.end())
 			dConeMesh = gte::Length(*IntrMeshIter - top->point());
@@ -565,4 +588,38 @@ double AlphaC)
 	}
 
 	return std::move(branch);
+}
+
+gte::AlignedBox3<double>
+experiment::GenerateAABB(TriMesh *mesh)
+{
+	if (mesh == NULL)
+		return gte::AlignedBox3<double>();
+
+	float minX = mesh->vertices[0][0], maxX = minX;
+	float minY = mesh->vertices[0][1], maxY = minY;
+	float minZ = mesh->vertices[0][2], maxZ = minZ;
+
+	for (size_t i = 1; i < mesh->vertices.size(); ++i)
+	{
+		if (mesh->vertices[i][0] < minX)
+			minX = mesh->vertices[i][0];
+		else if (mesh->vertices[i][0] > maxX)
+			maxX = mesh->vertices[i][0];
+
+		if (mesh->vertices[i][1] < minY)
+			minY = mesh->vertices[i][1];
+		else if (mesh->vertices[i][1] > maxY)
+			maxY = mesh->vertices[i][1];
+
+		if (mesh->vertices[i][2] < minZ)
+			minZ = mesh->vertices[i][2];
+		else if (mesh->vertices[i][2] > maxZ)
+			maxZ = mesh->vertices[i][2];
+	}
+
+	double min = std::min(minX, std::min(minY, minZ));
+	double max = std::max(maxX, std::max(maxY, maxZ));
+
+	return gte::AlignedBox3<double>(min, min, min, max, max, max);
 }

@@ -10,6 +10,8 @@
 #include "../Mathematics/GteIntrLine2Triangle2.h"
 #include "../trimesh/include/TriMesh.h"
 #include "../Mathematics/GteIntrLine3Triangle3.h"
+#include "../Mathematics/GteAlignedBox3.h"
+#include "Octree.h"
 #include <array>
 #include <vector>
 #include <map>
@@ -171,6 +173,13 @@ public:
 		GenerateSupport(const std::vector<gte::Vector3<double>>& InitialSet, 
 		const std::vector<gte::Triangle3<double>>& TList,
 		double AlphaC = GTE_C_QUARTER_PI);
+
+	/*  Create Bounding Cube of Triangle Mesh  */
+	gte::AlignedBox3<double>
+		GenerateAABB(TriMesh* mesh);
+
+	gte::AlignedBox3<double> aabb;
+
 };
 
 
