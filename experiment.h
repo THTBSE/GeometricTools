@@ -122,6 +122,14 @@ public:
 	std::vector<gte::Segment3<double>>
 		DiscreteCone(const gte::Cone3<double>& c);
 
+	//Discrete a cone to a series of triangles
+	std::vector<gte::Triangle3<double>>
+		DiscreteConeToMesh(const gte::Cone3<double>& c);
+
+	//in this function ,c1 represent as segments, c2 represent as triangles
+	std::vector<gte::Vector3<double>>
+		IntrConeToCone(std::vector<gte::Segment3<double>>& c1, const std::vector<gte::Triangle3<double>>& c2);
+
 	//in this function , we deafult consider c1 and c2 are not infinite cone.
 	std::vector<gte::Vector3<double>>
 		IntrConeToCone(const gte::Cone3<double>& c1, const gte::Cone3<double>& c2);

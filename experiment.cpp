@@ -98,6 +98,49 @@ experiment::DiscreteCone(const gte::Cone3<double>& c)
 	return std::move(segments);
 }
 
+std::vector<gte::Triangle3<double>>
+experiment::DiscreteConeToMesh(const gte::Cone3<double>& c)
+{
+	std::vector<gte::Vector3<double>> diskPoints(GetConeDisk(c));
+	std::vector<gte::Triangle3<double>> triangles;
+	auto count = diskPoints.size();
+	triangles.reserve(count);
+	for (size_t i = 0; i < count - 1; ++i)
+	{
+		triangles.push_back(gte::Triangle3<double>(c.vertex, diskPoints[i], diskPoints[i + 1]));
+	}
+	triangles.push_back(gte::Triangle3<double>(c.vertex, diskPoints[count - 1], diskPoints[0]));
+	return std::move(triangles);
+}
+
+std::vector<gte::Vector3<double>>
+experiment::IntrConeToCone(std::vector<gte::Segment3<double>>& c1, const std::vector<gte::Triangle3<double>>& c2)
+{
+	gte::FIQuery<double, gte::Segment3<double>, gte::Triangle3<double>> fiq;
+	std::vector<gte::Vector3<double>> intrp;
+	auto c1V = c1[0].p[0];
+	for (const auto &seg : c1)
+	{
+		double minDist = std::numeric_limits<double>::max();
+		gte::Vector3<double> nearest;
+		for (const auto &tri : c2)
+		{
+			auto ret = fiq(seg, tri);
+			if (ret.intersect)
+			{
+				auto dist = gte::Length(ret.point - c1V);
+				if (dist < minDist)
+				{
+					minDist = dist;
+					nearest = ret.point;
+				}
+			}
+		}
+		if (minDist < std::numeric_limits<double>::max())
+			intrp.push_back(nearest);
+	}
+	return std::move(intrp);
+}
 
 std::vector<gte::Vector3<double>>
 experiment::IntrConeToCone(std::vector<gte::Segment3<double>>& c1, const gte::Cone3<double>& c2)
@@ -109,25 +152,28 @@ experiment::IntrConeToCone(std::vector<gte::Segment3<double>>& c1, const gte::Co
 	gte::Vector3<double> edgeVector,edgeVector2;
 	double ang1, ang2;
 	//we only take nearest intersect point
+	gte::FIQuery<double, gte::Segment3<double>, gte::Cone3<double>> fiq;
 	for (const auto &seg : c1)
 	{
-		gte::FIQuery<double, gte::Segment3<double>, gte::Cone3<double>> fiq;
 		auto Result = fiq(seg, c2);
 		if (Result.intersect)
 		{
-			switch (Result.type)
+			auto orig = gte::Angle(seg.p[1] - seg.p[0], zx);
+			edgeVector = Result.point[0] - top;
+			edgeVector2 = Result.point[0] - top2;
+			ang1 = gte::Angle(edgeVector, zx);
+			ang2 = gte::Angle(edgeVector2, zx);
+			while (fabs(ang2 - ang1) > 0.01)
 			{
-			case 1:case 2:
-				edgeVector = Result.point[0] - top;
-				edgeVector2 = Result.point[0] - top2;
-				ang1 = gte::Angle(edgeVector, zx);
-				ang2 = gte::Angle(edgeVector2, zx);
-				if (ang1 <= GTE_C_QUARTER_PI && ang2 <= GTE_C_QUARTER_PI)
-					ret.push_back(Result.point[0]);
-				break;
-			default:
-				break;
+				double sinTheta = sin(ang2)*c2.cosAngle - cos(ang2)*c2.sinAngle;
+				double ll = sinTheta * gte::Length(Result.point[0] - top2);
+				gte::Normalize(edgeVector);
+				Result.point[0] = Result.point[0] + ll * edgeVector;
+				ang2 = gte::Angle(Result.point[0] - top2, zx);
+
+				bool xxyy = true;
 			}
+			ret.push_back(Result.point[0]);
 		}
 	}
 	return std::move(ret);
@@ -228,7 +274,7 @@ experiment::GetConeDisk(const gte::Cone3<double>& c1)
 	gte::Vector3<double> center = c1.vertex + height * c1.axis;
 
 	//how many vertices we need
-	size_t times = 36;
+	size_t times = 18;
 	double marchAngle = GTE_C_TWO_PI / times;
 	
 	//construct transform matrix
@@ -304,6 +350,7 @@ void experiment::drawPoints()
 	glDisable(GL_COLOR_MATERIAL);
 }
 
+//CAN BE ABANDONED!!
 std::vector<gte::Vector3<double>>
 experiment::IntrConeToTriangle(const std::vector<gte::Segment3<double>>& cone,
 const std::vector<gte::Triangle3<double>>& TList)
@@ -326,6 +373,7 @@ const std::vector<gte::Triangle3<double>>& TList)
 	return std::move(ret);
 }
 
+//CAN BE ABADONED!!
 std::vector<gte::Vector3<double>>
 experiment::IntrConeToTriangle(const gte::Cone3<double>& cone, const std::vector<gte::Triangle3<double>>& TList)
 {
@@ -339,6 +387,7 @@ experiment::IntrConeToTriangle(const gte::Cone3<double>& cone, const std::vector
 	std::vector<gte::Vector3<double>> ret;
 	for (const auto &seg : segments)
 	{
+		//bug bug bug !! first intersection may not be nearest !!
 		for (const auto &tri : TList)
 		{
 			gte::FIQuery<double, gte::Segment3<double>, gte::Triangle3<double>> fiq;
@@ -511,6 +560,7 @@ double AlphaC)
 	typedef gte::Vector3<double> GVec3;
 	typedef pair<GVec3, multiset<Support>::iterator> GVec3AndPtr;
 
+	//build octree for computing intersection between segment and triangle mesh faster
 	TOctree TriOctree(TList, aabb, 9);
 
 	multiset<Support> PointSet;
@@ -533,7 +583,8 @@ double AlphaC)
 		for (auto it = ++PointSet.begin(); it != PointSet.end(); ++it)
 		{
 			//maybe empty because non intersection between two cones!
-			auto intrs = IntrConeToCone(c1, it->cone());
+		//	auto intrs = IntrConeToCone(c1, it->cone());
+			auto intrs = IntrConeToCone(c1, DiscreteConeToMesh(it->cone()));
 			if (intrs.empty())
 				continue;
 			auto max = *max_element(intrs.begin(), intrs.end(), CompOneDim<3>(2));
