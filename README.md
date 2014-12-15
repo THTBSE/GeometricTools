@@ -1,4 +1,15 @@
 GeometricTools
 ==============
 
-I want to build a common geometry library with C++, it contain many useful methods for computer graphics.Most important,it can be used very easily!
+Skeleton of Support Structure
+-----------------------------
+
+###Arches
+![arch](https://github.com/THTBSE/GeometricTools/blob/master/archSupport.bmp)
+
+###Bird
+![bird](https://github.com/THTBSE/GeometricTools/blob/master/birdSupport.bmp)
+
+###Tree
+![tree](https://github.com/THTBSE/GeometricTools/blob/master/treeSupport.bmp)
+
