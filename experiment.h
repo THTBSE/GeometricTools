@@ -17,6 +17,8 @@
 #include <map>
 #include <set>
 
+extern void test_read_time();
+
 //用来保存扫描线与三角形的交点，只有一个交点 first == seconde
 //两个交点fisrt < second
 //只保存一维坐标，另一维坐标通过其他方式保存
@@ -60,7 +62,7 @@ class Support
 {
 public:
 	Support(const gte::Vector3<double>& point, size_t identify, double alphaC = GTE_C_QUARTER_PI)
-		:C(gte::Cone3<double>(point,-gte::Vector3<double>::Basis2(),alphaC,point[2])), id(identify){}
+		:C(point,-gte::Vector3<double>::Basis2(),alphaC,point[2]), id(identify){}
 	const gte::Vector3<double>& point() const
 	{ return C.vertex; }
 	size_t identifier() const
@@ -176,6 +178,10 @@ public:
 	std::vector<int>
 		GetOverhangTriangle(const std::vector<gte::Triangle3<double>>& TList, double alphcC = GTE_C_QUARTER_PI);
 
+	/*  Compute overhang points, which have lower z coordinate than their adjacencies */
+	std::vector<gte::Vector3<double>>
+		GetOverhangPoints(TriMesh *mesh);
+
 	/*  Greedy strategy to generate support structure  */
 	std::vector<gte::Segment3<double>> 
 		GenerateSupport(const std::vector<gte::Vector3<double>>& InitialSet, 
@@ -188,8 +194,28 @@ public:
 
 	gte::AlignedBox3<double> aabb;
 
+
+	/*  Generate solid mesh for support structure  */
+	TriMesh* GenerateSupportMesh(const std::vector<gte::Segment3<double>>& segs);
+	void GenerateStrut(double rad, const point &p1, const point &p2,
+		vector<point> &vertices, vector<TriMesh::Face> &faces);
+	inline double GetStrutRad(const gte::Segment3<double> &seg);
 };
 
+double
+experiment::GetStrutRad(const gte::Segment3<double> &seg)
+{
+	auto up = seg.p[0][2] > seg.p[1][2] ? seg.p[0] : seg.p[1];
+	auto down = seg.p[0][2] < seg.p[1][2] ? seg.p[0] : seg.p[1];
+	auto strut = up - down;
+
+	const double k = 0.0015;
+	auto zAxis = gte::Vector3<double>::Basis2();
+	double length = gte::Length(strut);
+	double alpha = (GTE_C_HALF_PI - gte::Angle(zAxis, strut)) * 180 / GTE_C_PI;
+
+	return k * length * alpha;
+}
 
 
 #endif

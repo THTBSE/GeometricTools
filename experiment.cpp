@@ -357,16 +357,21 @@ const std::vector<gte::Triangle3<double>>& TList)
 {
 	std::vector<gte::Vector3<double>> ret;
 	gte::FIQuery<double, gte::Segment3<double>, gte::Triangle3<double>> fiq;
+	double minDist = std::numeric_limits<double>::max();
+	auto coneVertex = cone[0].p[0];
 	for (const auto &seg : cone)
 	{
-		//bug ! first intersection may not be nearest point.
 		for (const auto &tri : TList)
 		{
 			auto Result = fiq(seg, tri);
 			if (Result.intersect)
 			{
-				ret.push_back(Result.point);
-				break;
+				double dist = gte::Length(coneVertex - Result.point);
+				if (dist < minDist)
+				{
+					minDist = dist;
+					ret.push_back(Result.point);
+				}
 			}
 		}
 	}
@@ -673,4 +678,205 @@ experiment::GenerateAABB(TriMesh *mesh)
 	double max = std::max(maxX, std::max(maxY, maxZ));
 
 	return gte::AlignedBox3<double>(min, min, min, max, max, max);
+}
+
+void test_read_time()
+{
+	sys_clock start0, start1, start2, end0, end1, end2;
+
+	start0 = std::chrono::system_clock::now();
+	TriMesh *mesh0 = TriMesh::load_stl3("dragon.stl");
+	end0 = std::chrono::system_clock::now();
+	delete mesh0;
+
+	start1 = std::chrono::system_clock::now();
+	TriMesh *mesh1 = TriMesh::load_stl2("dragon.stl");
+	end1 = std::chrono::system_clock::now();
+	delete mesh1;
+
+	start2 = std::chrono::system_clock::now();
+	TriMesh *mesh2 = TriMesh::load_stl("dragon.stl");
+	end2 = std::chrono::system_clock::now();
+	delete mesh2;
+
+	std::chrono::duration<double> time0, time1, time2;
+	time0 = end0 - start0;
+	time1 = end1 - start1;
+	time2 = end2 - start2;
+
+	double t0, t1, t2;
+	t0 = time0.count();
+	t1 = time1.count();
+	t2 = time2.count();
+
+	FILE* f = fopen("time.txt", "w");
+	fprintf(f, "%f,%f,%f", t0, t1, t2);
+	fclose(f); 
+}
+
+std::vector<gte::Vector3<double>>
+experiment::GetOverhangPoints(TriMesh *mesh)
+{
+	std::vector<gte::Vector3<double>> ret;
+	mesh->need_neighbors();
+	size_t vcount = mesh->vertices.size();
+	size_t nbIndex, ncount;
+	bool isOverhang;
+	for (size_t i = 0; i < vcount; ++i)
+	{
+		if (mesh->vertices[i][2] < 1)
+			continue;
+		ncount = mesh->neighbors[i].size();
+		isOverhang = true;
+		for (size_t j = 0; j < ncount; ++j)
+		{
+			nbIndex = mesh->neighbors[i][j];
+			if (mesh->vertices[i][2] > mesh->vertices[nbIndex][2])
+			{
+				isOverhang = false;
+				break;
+			}
+		}
+		if (isOverhang)
+		{
+			ret.push_back(gte::Vector3<double>((double)mesh->vertices[i][0],
+				(double)mesh->vertices[i][1], (double)mesh->vertices[i][2] - 0.1));
+		}
+	}
+	return std::move(ret);
+}
+
+TriMesh*
+experiment::GenerateSupportMesh(const std::vector<gte::Segment3<double>>& segs)
+{
+	TriMesh *mesh = new TriMesh;
+	for (const auto &s : segs)
+	{
+		auto rad = GetStrutRad(s);
+		point p1(s.p[0][0], s.p[0][1], s.p[0][2]);
+		point p2(s.p[1][0], s.p[1][1], s.p[1][2]);
+		GenerateStrut(rad, p2, p1, mesh->vertices, mesh->faces);
+	}
+	return mesh;
+}
+
+void
+experiment::GenerateStrut(double rad, const point &p1, const point &p2,
+vector<point> &vertices, vector<TriMesh::Face> &faces)
+{
+	vec medial = p2 - p1;
+	float height = len(medial);
+	int beginT = vertices.size();
+	vector<int> vid;
+
+	//generate base vertices
+	vector<vec> basev;
+	int numpv = 14;
+	for (int i = 0; i<numpv; i++)
+	{
+		float alpha = (float)i* 2 * M_PIf / numpv;
+		basev.push_back(vec(rad*cos(alpha), rad*sin(alpha), 0));
+	}
+	vertices.insert(vertices.end(), basev.begin(), basev.end());
+
+	float incre = height / 3;
+	for (int i = 0; i<3; i++)
+	{
+		for (unsigned j = 0; j<basev.size(); j++)
+		{
+			basev[j][2] += incre;
+		}
+		vertices.insert(vertices.end(), basev.begin(), basev.end());
+	}
+
+	int endT = vertices.size();
+	for (int i = beginT; i<endT; i++)
+	{
+		vid.push_back(i);
+	}
+
+	//generate side faces
+	for (int i = 0; i<3; i++)
+	{
+		int p = i * numpv;
+		int ps = (i + 1) * numpv;
+		for (int j = 0; j<numpv; j++)
+		{
+			TriMesh::Face f;
+			f[0] = vid[j + p];
+			f[1] = vid[ps + (j + 1) % numpv];
+			f[2] = vid[j + ps];
+			faces.push_back(f);
+
+			f[0] = vid[j + p];
+			f[1] = vid[p + (j + 1) % numpv];
+			f[2] = vid[ps + (j + 1) % numpv];
+			faces.push_back(f);
+		}
+	}
+
+	vec bc(0, 0, 0), tc(0, 0, height);
+	vertices.push_back(bc);
+	int vbc = vertices.size() - 1;
+	vertices.push_back(tc);
+	int vtc = vertices.size() - 1;
+	endT = vertices.size();
+
+	//generate bottom & top faces
+	for (int i = 0; i<numpv; i++)
+	{
+		TriMesh::Face f;
+		f[0] = vbc;
+		f[1] = vid[(i + 1) % numpv];
+		f[2] = vid[i];
+		faces.push_back(f);
+	}
+
+	int lst = 3 * numpv;
+	int end = 4 * numpv;
+	for (int i = lst; i<end; i++)
+	{
+		TriMesh::Face f;
+		f[0] = vtc;
+		f[1] = vid[i];
+		if (i != (end - 1))
+			f[2] = vid[i + 1];
+		else
+			f[2] = vid[lst];
+
+		faces.push_back(f);
+	}
+
+	//transform to correct position 
+	tc = normalize(tc); medial = normalize(medial);
+	gte::Matrix4x4<double> TM;
+	TM.MakeIdentity();
+	float ang = angle(tc, medial);
+	if (fabs(ang - M_PIf) < 1e-6)
+	{
+		TM.SetCol(3, gte::Vector4<double>(p2[0], p2[1], p2[2], 1.0));
+	}
+	else if (fabs(ang) < 1e-6)
+	{
+		TM.SetCol(3, gte::Vector4<double>(p1[0], p1[1], p1[2], 1.0));
+	}
+	else
+	{
+		gteVec3 zAxis(medial[0], medial[1], medial[2]);
+		gteVec3 xAxis(-zAxis[1], zAxis[0], 0.0);
+		gte::Normalize(xAxis);
+		gteVec3 yAxis = gte::UnitCross<3, double>(zAxis, xAxis);
+		TM = gte::Matrix4x4<double>(gte::HLift(xAxis, 0.0), gte::HLift(yAxis, 0.0), gte::HLift(zAxis, 0.0),
+			gteVec4(p1[0],p1[1],p1[2],1.0), true);
+	}
+
+	for (int i = beginT; i<endT; i++)
+	{
+		gteVec4 tv(vertices[i][0], vertices[i][1], vertices[i][2], 1.0);
+		auto tmp = TM * tv;
+		vertices[i][0] = tmp[0];
+		vertices[i][1] = tmp[1];
+		vertices[i][2] = tmp[2];
+	}
+
 }
