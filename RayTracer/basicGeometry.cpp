@@ -9,7 +9,7 @@ Vector3 Ray3::getPoint(double t) const
 	return origin + t * direction;
 }
 
-IntersectResult Ray3::intersectNearest(const vector<shared_ptr<geometry>> &objects)
+IntersectResult Ray3::intersectNearest(const vector<shared_ptr<geometry>> &objects) const
 {
 	double minDistance = std::numeric_limits<double>::max();
 	IntersectResult ret;

@@ -21,40 +21,41 @@ const Color COLOR_RED(1.0, 0.0, 0.0);
 const Color COLOR_WHITE(1.0, 1.0, 1.0);
 const Color COLOR_BLUE(0.0, 0.0, 1.0);
 const Color COLOR_GREEN(0.0, 1.0, 0.0);
+const Color COLOR_BLACK(0.0, 0.0, 0.0);
 
 class material
 {
 public:
-	virtual Color sample(const Ray3 &ray, const Vector3 &position, const Vector3 &normal)
-	{
-		return Color(1.0, 1.0, 1.0);
-	};
+	material(double reflect) :reflectiveness(reflect){}
+	virtual Color sample(const Ray3 &ray, const Vector3 &position, const Vector3 &normal) = 0;
 	virtual ~material() {}
+
+	double reflectiveness;
 };
 
 class phongMaterial :public material
 {
 public:
 	phongMaterial(const Color &diff,const Color &spec, double shin, double refl, 
-		const Vector3 &ld) :diffuse(diff), specular(spec), 
-		shininess(shin), reflectiveness(refl), lightDir(ld)
+		const Vector3 &ld) :material(refl), diffuse(diff), specular(spec), 
+		shininess(shin), lightDir(ld)
 	{
 		normalize(lightDir);
 	}
 	virtual Color sample(const Ray3 &ray, const Vector3 &position, const Vector3 &normal);
 private:
 	Color diffuse, specular;
-	double shininess, reflectiveness;
+	double shininess;
 	Vector3 lightDir;
 };
 
 class checkerMaterial :public material
 {
 public:
-	checkerMaterial(double sca, double ref = 0.0);
+	checkerMaterial(double sca, double ref = 0.25);
 	virtual Color sample(const Ray3 &ray, const Vector3 &position, const Vector3 &normal);
 
-	double scale, reflectiveness;
+	double scale;
 };
 
 #endif

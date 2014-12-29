@@ -18,7 +18,7 @@ int main(void)
 	rayTracer tracer(realWidth, realHeight, Vector3(0.0, 50.0, 150));
 	vector<GPtr> objects;
 	GenerateObjects(objects);
-	tracer.rayTrace(objects);
+	tracer.rayTrace(objects, 5);
 
 	GLFWwindow* window;
 

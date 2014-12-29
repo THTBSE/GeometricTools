@@ -34,7 +34,7 @@ const Vector3 &normal)
 	return COLOR_WHITE.modulate(diffuseTerm.add(specularTerm));
 }
 
-checkerMaterial::checkerMaterial(double sca, double ref) :scale(sca), reflectiveness(ref)
+checkerMaterial::checkerMaterial(double sca, double ref) :material(ref), scale(sca)
 {
 }
 

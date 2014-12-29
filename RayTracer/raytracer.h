@@ -14,14 +14,16 @@ class rayTracer
 public:
 	rayTracer(int w, int h, const Vector3 &e);
 	void renderScene();
-	void simpleExp(int width, int height);
 
 
-	void rayTrace(const vector<GPtr> &objects);
+	void rayTrace(const vector<GPtr> &objects, int maxReflect = 5);
 	
 	int width, height, lw, rw, lh, rh;
 	Vector3 eye;
 	vector<Color> colors;
+
+private:
+	Color rayTraceRecursive(const vector<GPtr> &objects, const Ray3 &ray, int maxReflcet);
 };
 
 

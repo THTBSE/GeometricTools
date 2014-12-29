@@ -24,7 +24,7 @@ class Ray3
 public:
 	Ray3(const Vector3 &orig, const Vector3 &dir);
 	Vector3 getPoint(double t) const;
-	IntersectResult intersectNearest(const vector<shared_ptr<geometry>> &objects);
+	IntersectResult intersectNearest(const vector<shared_ptr<geometry>> &objects) const;
 
 	Vector3 origin, direction;
 };
@@ -33,10 +33,7 @@ class geometry
 {
 public:
 	geometry(shared_ptr<material> m) :mat(m){}
-	virtual IntersectResult intersectTest(const Ray3 &ray) const 
-	{ 
-		return IntersectResult(); 
-	}
+	virtual IntersectResult intersectTest(const Ray3 &ray) const = 0;
 	virtual ~geometry() {}
 
 	shared_ptr<material> mat;
