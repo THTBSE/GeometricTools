@@ -567,14 +567,17 @@ double AlphaC)
 
 	//build octree for computing intersection between segment and triangle mesh faster
 	TOctree TriOctree(TList, aabb, 9);
-
+	int identifier = 0;
 	multiset<Support> PointSet;
-	size_t Identifier = 0;
 	for (const auto & p : InitialSet)
 	{
-		PointSet.insert(Support(p, Identifier++, AlphaC));
+		PointSet.insert(Support(p, 0,identifier,AlphaC));
+		std::shared_ptr<STreeNode> node = std::make_shared<STreeNode>(STreeNode(0, p, false));
+		sTree.insert(std::make_pair(identifier, node));
+		identifier++;
 	}
 
+	int flag1 = 0, flag2 = 0;
 	vector<gte::Segment3<double>> branch;
 	while (!PointSet.empty())
 	{
@@ -625,25 +628,141 @@ double AlphaC)
 		double minDist = std::min(std::min(dConeCone, dConeMesh), dPointPlane);
 		if (minDist == dConeCone)
 		{
+			GetSTreeNode(identifier, top->level + 1, top->id, IntrIter->second->id, IntrIter->first, false);
 			//c1's point to intersection and ci's point to intersection.
 			//then erase Support c1 and ci from PointSet.
 			branch.push_back(gte::Segment3<double>(top->point(), IntrIter->first));
 			branch.push_back(gte::Segment3<double>(IntrIter->second->point(), IntrIter->first));
 			PointSet.erase(IntrIter->second);
-			PointSet.insert(Support(IntrIter->first, Identifier++, AlphaC));
+			PointSet.insert(Support(IntrIter->first, PointSet.begin()->level+1,identifier, AlphaC));
+
+			identifier++;
 		}
 		else if (minDist == dConeMesh)
 		{
+			GetSTreeNode(identifier, top->level+1, top->id, -1, *IntrMeshIter, true);
 			branch.push_back(gte::Segment3<double>(top->point(), *IntrMeshIter));
+
+			identifier++;
 		}
 		else
 		{
-			branch.push_back(gte::Segment3<double>(top->point(), GVec3(top->point()[0],top->point()[1],0.0)));
+			GVec3 rootPoint(top->point()[0], top->point()[1], 0.0);
+			GetSTreeNode(identifier, top->level+1, top->id, -1, rootPoint, true);
+			branch.push_back(gte::Segment3<double>(top->point(), rootPoint));
+			identifier++;
 		}
 		PointSet.erase(PointSet.begin());
 	}
 
 	return std::move(branch);
+}
+
+void
+experiment::GetSTreeNode(int id,int level, int c0, int c1, const gte::Vector3<double> &point, bool isRoot)
+{
+	if (level == 0)
+	{
+		return;
+	}
+	auto child0 = sTree.find(c0);
+	auto child1 = sTree.find(c1);
+
+	if (child0->second->level == 0)
+	{
+		child0->second->rad = GetStrutRad(child0->second->point, point);
+		child0->second->length = gte::Length(child0->second->point - point);
+	}
+
+	if (child1 != sTree.end() && child1->second->level == 0)
+	{
+		child1->second->rad = GetStrutRad(child1->second->point, point);
+		child1->second->length = gte::Length(child1->second->point - point);
+	}
+
+	std::shared_ptr<STreeNode> node = std::make_shared<STreeNode>(STreeNode(level, point, isRoot));
+	sTree.insert(std::make_pair(id, node));
+	node->children[0] = child0->second;
+	if (!isRoot)
+	{
+		node->children[1] = child1->second;
+	}
+	node->Init();
+
+}
+
+TriMesh* 
+experiment::TreesGrowth()
+{
+	TriMesh *mesh = new TriMesh;
+	std::vector<STreeNode> roots;
+
+	for (const auto &node : sTree)
+	{
+		if (node.second->isRoot)
+		{
+			OneTreeGrowth(mesh, node.second);
+		}
+	}
+	return mesh;
+}
+
+//through binary tree inorder traverse 
+void
+experiment::OneTreeGrowth(TriMesh *mesh, shared_ptr<STreeNode> root)
+{
+	if (root->children[0] == nullptr && root->children[1] == nullptr)
+	{
+		return;
+	}
+	
+	point p1(root->children[0]->point[0], root->children[0]->point[1], root->children[0]->point[2]);
+	point p2(root->point[0], root->point[1], root->point[2]);
+//	GenerateStrut(root->children[0]->rad, root->rad, p2, p1, mesh->vertices, mesh->faces);
+	GenerateNPath(root->children[0]->rad, root->rad, p1, p2, mesh->vertices, mesh->faces);
+
+	//if not end in mesh 
+	if (root->children[1] != nullptr)
+	{
+		p1 = point(root->children[1]->point[0], root->children[1]->point[1], root->children[1]->point[2]);
+//		GenerateStrut(root->children[1]->rad, root->rad, p2, p1, mesh->vertices, mesh->faces);
+		GenerateNPath(root->children[1]->rad, root->rad, p1, p2, mesh->vertices, mesh->faces);
+	}
+
+	OneTreeGrowth(mesh, root->children[0]);
+	if (root->children[1] != nullptr)
+		OneTreeGrowth(mesh, root->children[1]);
+}
+
+
+void
+experiment::GenerateNPath(double radtop, double radbottom, const point &pt, const point &pb,
+vector<point> &vertices, vector<TriMesh::Face> &faces)
+{
+	vec dir[4] = { vec(-1.0f, -1.0f, 0.0f), vec(-1.0f, 1.0f, 0.0f), vec(1.0f, -1.0f, 0.0f),
+		vec(1.0f, 1.0f, 1.0f) };
+
+	float rad[2] = { radtop, radbottom };
+	point p[2] = { pt, pb };
+	int index[8];
+	for (int i = 0; i < 2; i++)
+	{
+		for (int j = 0; j < 4; j++)
+		{
+			index[i * 4 + j] = vertices.size();
+			auto vector = rad[i] * normalize(dir[j]);
+			vertices.push_back(p[i] + vector);
+		}
+	}
+	
+	TriMesh::Face f;
+	for (int i = 0; i < 3; i++)
+	{
+		f[0] = index[i]; f[1] = index[i + 4]; f[2] = index[i + 1];
+		faces.push_back(f);
+		f[0] = index[i + 1]; f[1] = index[i + 4]; f[2] = index[i + 5];
+		faces.push_back(f);
+	}
 }
 
 gte::AlignedBox3<double>
@@ -749,44 +868,56 @@ experiment::GetOverhangPoints(TriMesh *mesh)
 TriMesh*
 experiment::GenerateSupportMesh(const std::vector<gte::Segment3<double>>& segs)
 {
+	if (segs.empty())
+		return NULL;
 	TriMesh *mesh = new TriMesh;
+	//vector<double> rads;
+	//for (const auto &s : segs)
+	//{
+	//	rads.push_back(GetStrutRad(s));
+	//}
+
+	//auto rad = std::accumulate(rads.begin(), rads.end(), 0.0);
+	//rad /= rads.size();
+	//rad *= 2;
 	for (const auto &s : segs)
 	{
-		auto rad = GetStrutRad(s);
+		auto rad = GetStrutRad(s.p[0], s.p[1]);
 		point p1(s.p[0][0], s.p[0][1], s.p[0][2]);
 		point p2(s.p[1][0], s.p[1][1], s.p[1][2]);
-		GenerateStrut(rad, p2, p1, mesh->vertices, mesh->faces);
+		GenerateStrut(0.7*rad,rad, p2, p1, mesh->vertices, mesh->faces);
 	}
 	return mesh;
 }
 
+//rad0 is the small end, and rad1 is big end.
 void
-experiment::GenerateStrut(double rad, const point &p1, const point &p2,
+experiment::GenerateStrut(double rad0,double rad1, const point &p1, const point &p2,
 vector<point> &vertices, vector<TriMesh::Face> &faces)
 {
+	if (rad0 > rad1)
+		std::swap(rad0, rad1);
+
 	vec medial = p2 - p1;
 	float height = len(medial);
 	int beginT = vertices.size();
 	vector<int> vid;
 
 	//generate base vertices
-	vector<vec> basev;
 	int numpv = 14;
-	for (int i = 0; i<numpv; i++)
-	{
-		float alpha = (float)i* 2 * M_PIf / numpv;
-		basev.push_back(vec(rad*cos(alpha), rad*sin(alpha), 0));
-	}
-	vertices.insert(vertices.end(), basev.begin(), basev.end());
-
+	float deltaR = rad1 - rad0;
+	float ratio = 1.0 / 3.0;
 	float incre = height / 3;
-	for (int i = 0; i<3; i++)
+	vertices.reserve(numpv * 4);
+	//linear interpolation 
+	for (int i = 0; i<4; i++)
 	{
-		for (unsigned j = 0; j<basev.size(); j++)
+		auto rad = rad1 - i*ratio*deltaR;
+		for (unsigned j = 0; j<numpv; j++)
 		{
-			basev[j][2] += incre;
+			float alpha = (float)j * 2 * M_PIf / numpv;
+			vertices.push_back(vec(rad*cos(alpha), rad*sin(alpha), incre*i));
 		}
-		vertices.insert(vertices.end(), basev.begin(), basev.end());
 	}
 
 	int endT = vertices.size();

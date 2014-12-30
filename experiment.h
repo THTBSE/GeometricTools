@@ -12,10 +12,14 @@
 #include "../Mathematics/GteIntrLine3Triangle3.h"
 #include "../Mathematics/GteAlignedBox3.h"
 #include "Octree.h"
+#include "SupportTree.h"
 #include <array>
 #include <vector>
 #include <map>
 #include <set>
+#include <numeric>
+#include <unordered_set>
+#include <unordered_map>
 
 extern void test_read_time();
 
@@ -35,9 +39,9 @@ public:
 	double first, second;
 	size_t TriIndex;
 
-	friend bool operator< (const IntrPair& lhs, const IntrPair& rhs)
+	bool operator< (const IntrPair& rhs) const
 	{
-		return (lhs.first + lhs.second) < (rhs.first + rhs.second);
+		return (first + second) < (rhs.first + rhs.second);
 	}
 };
 
@@ -61,12 +65,10 @@ private:
 class Support
 {
 public:
-	Support(const gte::Vector3<double>& point, size_t identify, double alphaC = GTE_C_QUARTER_PI)
-		:C(point,-gte::Vector3<double>::Basis2(),alphaC,point[2]), id(identify){}
+	Support(const gte::Vector3<double>& point, int lv, int idx, double alphaC = GTE_C_QUARTER_PI)
+		:C(point,-gte::Vector3<double>::Basis2(),alphaC,point[2]), level(lv), id(idx){}
 	const gte::Vector3<double>& point() const
 	{ return C.vertex; }
-	size_t identifier() const
-	{ return id; }
 	const gte::Cone3<double>& cone() const
 	{ return C; }
 
@@ -75,9 +77,11 @@ public:
 		return lhs.C.vertex[2] > rhs.C.vertex[2];
 	}
 
+	int level;
+	int id;
 private:
 	gte::Cone3<double> C;
-	size_t id;
+	
 };
 
 class experiment
@@ -195,18 +199,29 @@ public:
 	gte::AlignedBox3<double> aabb;
 
 
+
+	std::unordered_map<int, std::shared_ptr<STreeNode>> sTree;
+	void GetSTreeNode(int id,int level,int c0,int c1, const gte::Vector3<double> &point, bool isRoot);
+	TriMesh* TreesGrowth();
+	void OneTreeGrowth(TriMesh *mesh, shared_ptr<STreeNode> root);
+	void GenerateNPath(double radtop, double radbottom, const point &pt, const point &pb,
+		vector<point> &vertices, vector<TriMesh::Face> &faces);
+
+
 	/*  Generate solid mesh for support structure  */
 	TriMesh* GenerateSupportMesh(const std::vector<gte::Segment3<double>>& segs);
-	void GenerateStrut(double rad, const point &p1, const point &p2,
+	void GenerateStrut(double rad0,double rad1, const point &p1, const point &p2,
 		vector<point> &vertices, vector<TriMesh::Face> &faces);
-	inline double GetStrutRad(const gte::Segment3<double> &seg);
+	inline double GetStrutRad(const gte::Vector3<double> &p0,
+		const gte::Vector3<double> &p1);
 };
 
 double
-experiment::GetStrutRad(const gte::Segment3<double> &seg)
+experiment::GetStrutRad(const gte::Vector3<double> &p0,
+const gte::Vector3<double> &p1)
 {
-	auto up = seg.p[0][2] > seg.p[1][2] ? seg.p[0] : seg.p[1];
-	auto down = seg.p[0][2] < seg.p[1][2] ? seg.p[0] : seg.p[1];
+	auto up = p0[2] > p1[2] ? p0 : p1;
+	auto down = p0[2] < p1[2] ? p0 : p1;
 	auto strut = up - down;
 
 	const double k = 0.0015;
